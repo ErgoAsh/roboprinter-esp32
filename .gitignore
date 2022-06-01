@@ -1,2 +1,4 @@
 build/
 esp_idf_components/
+
+.project
