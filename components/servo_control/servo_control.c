@@ -9,7 +9,6 @@
 #include <math.h>
 #include <string.h>
 #include "esp_log.h"
-#include "endian.h"
 #include "driver/mcpwm.h"
 
 const char* SERVO_TAG = "RP_SERVO";
@@ -56,7 +55,7 @@ void data_received_callback(const uint8_t* data_buffer) {
 		}
 		//Serial.println();
 
-		bswap32(number); // Swap endian
+        //bswap32(number); // Swap endian
 
 		float angle;
 		memcpy(&angle, &number, sizeof(number));
