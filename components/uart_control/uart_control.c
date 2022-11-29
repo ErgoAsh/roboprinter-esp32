@@ -15,119 +15,131 @@
 #include "driver/uart.h"
 #include "esp_log.h"
 
+#define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Aborting.\n",__LINE__,(int)temp_rc);vTaskDelete(NULL);}}
+#define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
+
 const char* UART_TAG = "RP_UART";
 
 static const int BUFFER_SIZE = 1024;
 static const int UART_PORT_NUMBER = UART_NUM_0;
-static const char PATTERN_CHAR_NUMBER = 1;
+static const int UART_BUFFER_SIZE = 512
 
-static QueueHandle_t uart_queue;
+rcl_subscription_t subscriber;
+std_msgs__msg__Float32MultiArray recv_msg;
 
-void uart_init(void) {
-    uart_config_t uart_config = {
+bool serial_open(struct uxrCustomTransport * transport) {
+    size_t * uart_port = (size_t*) transport->args;
+    
+        uart_config_t uart_config = {
         .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
         .parity    = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
     };
 
-	uart_param_config(UART_PORT_NUMBER, &uart_config);
-    uart_set_pin(UART_PORT_NUMBER, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(UART_PORT_NUMBER, BUFFER_SIZE * 2, BUFFER_SIZE * 2, 20, &uart_queue, 0);
+    if (uart_param_config(UART_PORT_NUMBER, &uart_config) == ESP_FAIL) {
+        return false;
+    }
+    if (uart_set_pin(UART_PORT_NUMBER, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) == ESP_FAIL) {
+        return false;
+    }
+    if (uart_driver_install(UART_PORT_NUMBER, UART_BUFFER_SIZE * 2, 0, 0, NULL, 0) == ESP_FAIL) {
+        return false;
+    }
 
-    //Set uart pattern detect function.
-    uart_enable_pattern_det_intr(UART_PORT_NUMBER, '.', PATTERN_CHAR_NUMBER, 10000, 10, 10);
-    //Reset the pattern queue length to record at most 20 pattern positions.
-    uart_pattern_queue_reset(UART_PORT_NUMBER, 20);
+    return true;
+}
 
-    //Create a task to handler UART event from ISR
-    xTaskCreate(uart_event_task, "uart_event_task", 2048, NULL, 12, NULL);
+bool serial_close(struct uxrCustomTransport * transport)
+{
+    size_t * uart_port = (size_t*) transport->args;
+    return uart_driver_delete(*uart_port) == ESP_OK;
+}
+
+size_t serial_write(struct uxrCustomTransport* transport, const uint8_t * buf, size_t len, uint8_t * err)
+{
+    size_t * uart_port = (size_t*) transport->args;
+    const int txBytes = uart_write_bytes(*uart_port, (const char*) buf, len);
+    return txBytes;
+}
+
+size_t serial_read(struct uxrCustomTransport* transport, uint8_t* buf, size_t len, int timeout, uint8_t* err)
+{
+    size_t* uart_port = (size_t*) transport->args;
+    const int rxBytes = uart_read_bytes(*uart_port, buf, len, timeout / portTICK_RATE_MS);
+    return rxBytes;
+}
+
+void subscription_callback(const void* msgin)
+{
+	const std_msgs__msg__Float32MultiArray* msg = (const std_msgs__msg__Float32MultiArray*) msgin;
+	printf("Received: %d\n", msg->data);
+    data_received_callback(msg->data);
 }
 
 void uart_event_task(void *pvParameters)
 {
-    uart_event_t event;
-    size_t buffered_size;
-    uint8_t* dtmp = (uint8_t*) malloc(BUFFER_SIZE);
+	rcl_allocator_t allocator = rcl_get_default_allocator();
+	rclc_support_t support;
 
-    for (;;) {
-        //Waiting for UART event.
-        if (xQueueReceive(uart_queue, (void*) &event, (portTickType) portMAX_DELAY)) {
-            bzero(dtmp, BUFFER_SIZE);
-            ESP_LOGI(UART_TAG, "UART%d event occurred", UART_PORT_NUMBER);
-            switch (event.type) {
-                //Event of UART receving data
-                /*We'd better handler data event fast, there would be much more data events than
-                other types of events. If we take too much time on data event, the queue might
-                be full.*/
-                case UART_DATA:
-                    ESP_LOGI(UART_TAG, "Data size: %d", event.size);
-                    uart_read_bytes(UART_PORT_NUMBER, dtmp, event.size, portMAX_DELAY);
-                    ESP_LOGI(UART_TAG, "Content: %s", (const char*) dtmp);
-                    //uart_write_bytes(UART_PORT_NUMBER, (const char*) dtmp, event.size);
-                    ESP_LOGI(UART_TAG, "End");
-                    break;
-                //Event of HW FIFO overflow detected
-                case UART_FIFO_OVF:
-                    ESP_LOGI(UART_TAG, "hw fifo overflow");
-                    // If fifo overflow happened, you should consider adding flow control for your application.
-                    // The ISR has already reset the rx FIFO,
-                    // As an example, we directly flush the rx buffer here in order to read more data.
-                    uart_flush_input(UART_PORT_NUMBER);
-                    xQueueReset(UART_PORT_NUMBER);
-                    break;
-                //Event of UART ring buffer full
-                case UART_BUFFER_FULL:
-                    ESP_LOGI(UART_TAG, "ring buffer full");
-                    // If buffer full happened, you should consider encreasing your buffer size
-                    // As an example, we directly flush the rx buffer here in order to read more data.
-                    uart_flush_input(UART_PORT_NUMBER);
-                    xQueueReset(uart_queue);
-                    break;
-                //Event of UART RX break detected
-                case UART_BREAK:
-                    ESP_LOGI(UART_TAG, "uart rx break");
-                    break;
-                //Event of UART parity check error
-                case UART_PARITY_ERR:
-                    ESP_LOGI(UART_TAG, "uart parity error");
-                    break;
-                //Event of UART frame error
-                case UART_FRAME_ERR:
-                    ESP_LOGI(UART_TAG, "uart frame error");
-                    break;
-                //UART_PATTERN_DET
-                case UART_PATTERN_DET:
-                    uart_get_buffered_data_len(UART_PORT_NUMBER, &buffered_size);
-                    int pos = uart_pattern_pop_pos(UART_PORT_NUMBER);
-                    ESP_LOGI(UART_TAG, "[UART PATTERN DETECTED] pos: %d, buffered size: %d", pos, buffered_size);
-                    if (pos == -1) {
-                        // There used to be a UART_PATTERN_DET event, but the pattern position queue is full so that it can not
-                        // record the position. We should set a larger queue size.
-                        // As an example, we directly flush the rx buffer here.
-                        uart_flush_input(UART_PORT_NUMBER);
-                    } else {
-                        uart_read_bytes(UART_PORT_NUMBER, dtmp, pos, 100 / portTICK_PERIOD_MS);
-                        uint8_t pat[PATTERN_CHAR_NUMBER + 1];
-                        memset(pat, 0, sizeof(pat));
-                        uart_read_bytes(UART_PORT_NUMBER, pat, PATTERN_CHAR_NUMBER, 100 / portTICK_PERIOD_MS);
-                        ESP_LOGI(UART_TAG, "read data: %s", dtmp);
-                        ESP_LOGI(UART_TAG, "read pat : %s", pat);
+	// create init_options
+	RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
+    //rcl_init_options_t init_options = rcl_get_zero_initialized_init_options();
+	//RCCHECK(rcl_init_options_init(&init_options, allocator));
 
+#ifdef CONFIG_MICRO_ROS_ESP_XRCE_DDS_MIDDLEWARE
+    //rmw_init_options_t* rmw_options = rcl_init_options_get_rmw_init_options(&init_options);
 
+	// Static Agent IP and port can be used instead of autodisvery.
+    //RCCHECK(rmw_uros_options_set_udp_address(CONFIG_MICRO_ROS_AGENT_IP, CONFIG_MICRO_ROS_AGENT_PORT, rmw_options));
+	//RCCHECK(rmw_uros_discover_agent(rmw_options));
+#endif
 
-                    }
-                    break;
-                //Others
-                default:
-                    ESP_LOGI(UART_TAG, "uart event type: %d", event.type);
-                    break;
-            }
-        }
-    }
+	// Create node.
+	rcl_node_t node = rcl_get_zero_initialized_node();
+	RCCHECK(rclc_node_init_default(&node, "roboprinter_esp_rclc", "", &support));
 
-    free(dtmp);
-    dtmp = NULL;
-    vTaskDelete(NULL);
+	// Create subscriber.
+	RCCHECK(rclc_subscription_init_default(
+		&subscriber,
+		&node,
+		ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
+		"roboprinter_joint_publisher"));
+
+	// create executor
+	rclc_executor_t executor;
+	RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
+	RCCHECK(rclc_executor_add_subscription(&executor, &subscriber, &recv_msg, &subscription_callback, ON_NEW_DATA));
+
+	// Spin forever.
+	while(1){
+		rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
+		usleep(100000);
+	}
+
+	// Free resources.
+	RCCHECK(rcl_subscription_fini(&subscriber, &node));
+	RCCHECK(rcl_node_fini(&node));
+
+	vTaskDelete(NULL);
+}
+
+void uart_init(void) {
+	rmw_uros_set_custom_transport(
+		true,
+		(void *) UART_PORT_NUMBER,
+		serial_open,
+		serial_close,
+		serial_write,
+		serial_read
+	);
+
+    xTaskCreate(uart_event_task,
+       "uart_event_task",
+        CONFIG_MICRO_ROS_APP_STACK,
+        NULL,
+        CONFIG_MICRO_ROS_APP_TASK_PRIO,
+        NULL
+    );
 }
