@@ -8,13 +8,25 @@
 #include "servo_control.h"
 
 #include <stdio.h>
-#include <string.h>
+#include <unistd.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/queue.h"
 #include "driver/uart.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_system.h"
 
+#include <rcl/rcl.h>
+#include <rcl/error_handling.h>
+#include <rclc/rclc.h>
+#include <rclc/executor.h>
+#include <sensor_msgs/msg/joint_state.h>
+
+#include <rmw_microxrcedds_c/config.h>
+#include <rmw_microros/rmw_microros.h>
+
+#define _BSD_SOURCE
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Aborting.\n",__LINE__,(int)temp_rc);vTaskDelete(NULL);}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
 
@@ -22,10 +34,10 @@ const char* UART_TAG = "RP_UART";
 
 static const int BUFFER_SIZE = 1024;
 static const int UART_PORT_NUMBER = UART_NUM_0;
-static const int UART_BUFFER_SIZE = 512
+static const int UART_BUFFER_SIZE = 512;
 
 rcl_subscription_t subscriber;
-std_msgs__msg__Float32MultiArray recv_msg;
+sensor_msgs__msg__JointState recv_msg;
 
 bool serial_open(struct uxrCustomTransport * transport) {
     size_t * uart_port = (size_t*) transport->args;
@@ -73,9 +85,9 @@ size_t serial_read(struct uxrCustomTransport* transport, uint8_t* buf, size_t le
 
 void subscription_callback(const void* msgin)
 {
-	const std_msgs__msg__Float32MultiArray* msg = (const std_msgs__msg__Float32MultiArray*) msgin;
-	printf("Received: %d\n", msg->data);
-    data_received_callback(msg->data);
+	const sensor_msgs__msg__JointState* msg = (const sensor_msgs__msg__JointState*) msgin;
+	printf("Received: %f\n", msg->position.data[0]);
+    data_received_callback(msg->position.data);
 }
 
 void uart_event_task(void *pvParameters)
@@ -104,8 +116,8 @@ void uart_event_task(void *pvParameters)
 	RCCHECK(rclc_subscription_init_default(
 		&subscriber,
 		&node,
-		ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
-		"roboprinter_joint_publisher"));
+		ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
+		"joint_states"));
 
 	// create executor
 	rclc_executor_t executor;

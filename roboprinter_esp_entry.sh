@@ -2,7 +2,7 @@
 
 set -eu
 
-source $IDF_PATH/export.sh
+#source $IDF_PATH/export.sh
 
 bash
 

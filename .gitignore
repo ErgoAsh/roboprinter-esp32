@@ -4,3 +4,4 @@ managed_components/
 components/micro_ros_espidf_component/
 
 .project
+.sdkconfig.old
