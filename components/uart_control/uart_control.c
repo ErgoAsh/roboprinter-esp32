@@ -32,7 +32,7 @@
 
 const char* UART_TAG = "RP_UART";
 
-static const int BUFFER_SIZE = 1024;
+//static const int BUFFER_SIZE = 1024;
 static const int UART_PORT_NUMBER = UART_NUM_0;
 static const int UART_BUFFER_SIZE = 512;
 
@@ -40,9 +40,8 @@ rcl_subscription_t subscriber;
 sensor_msgs__msg__JointState recv_msg;
 
 bool serial_open(struct uxrCustomTransport * transport) {
-    size_t * uart_port = (size_t*) transport->args;
-    
-        uart_config_t uart_config = {
+    //size_t * uart_port = (size_t*) transport->args;
+    uart_config_t uart_config = {
         .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
         .parity    = UART_PARITY_DISABLE,
@@ -65,21 +64,18 @@ bool serial_open(struct uxrCustomTransport * transport) {
 
 bool serial_close(struct uxrCustomTransport * transport)
 {
-    size_t * uart_port = (size_t*) transport->args;
-    return uart_driver_delete(*uart_port) == ESP_OK;
+    return uart_driver_delete(UART_PORT_NUMBER) == ESP_OK;
 }
 
 size_t serial_write(struct uxrCustomTransport* transport, const uint8_t * buf, size_t len, uint8_t * err)
 {
-    size_t * uart_port = (size_t*) transport->args;
-    const int txBytes = uart_write_bytes(*uart_port, (const char*) buf, len);
+    const int txBytes = uart_write_bytes(UART_PORT_NUMBER, (const char*) buf, len);
     return txBytes;
 }
 
 size_t serial_read(struct uxrCustomTransport* transport, uint8_t* buf, size_t len, int timeout, uint8_t* err)
 {
-    size_t* uart_port = (size_t*) transport->args;
-    const int rxBytes = uart_read_bytes(*uart_port, buf, len, timeout / portTICK_RATE_MS);
+    const int rxBytes = uart_read_bytes(UART_PORT_NUMBER, buf, len, timeout / portTICK_RATE_MS);
     return rxBytes;
 }
 

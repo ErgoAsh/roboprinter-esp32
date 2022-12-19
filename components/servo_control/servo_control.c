@@ -14,29 +14,29 @@
  
 const char* SERVO_TAG = "RP_SERVO";
  
-static const float servo_us_data[4][3] = {
+static const double servo_us_data[4][3] = {
 		{ 2450, 1525, 525 },
 		{ 625, 1575, 2475 },
 		{ 2475, 1525, 625 },
 		{ 2475, 1500, 525 }
 };
  
-static const float servo_angle_data[4][3] = {
+static const double servo_angle_data[4][3] = {
 		{ -90, 0, 90 },
 		{ -90, 0, 90 },
 		{ -90, 0, 90 },
 		{ -90, 0, 90 }
 };
  
-static float servo_0_angle = 0;
-static float servo_1_angle = 0;
-static float servo_2_angle = 0;
-static float servo_3_angle = 0;
+static double servo_0_angle = 0;
+static double servo_1_angle = 0;
+static double servo_2_angle = 0;
+static double servo_3_angle = 0;
  
-static float slope[4] = {0, 0, 0, 0};
-static float intersection[4] = {0, 0, 0, 0};
+static double slope[4] = {0, 0, 0, 0};
+static double intersection[4] = {0, 0, 0, 0};
  
-void data_received_callback(const float* angle_array) {
+void data_received_callback(const double* angle_array) {
 	// TODO calculate everything in radians
 	servo_0_angle = radians_to_degrees(angle_array[0]);
 	servo_1_angle = radians_to_degrees(angle_array[1]);
@@ -55,20 +55,20 @@ void data_received_callback(const float* angle_array) {
 //			angle_to_pulse(servo_0_angle, 0));
 }
  
-float radians_to_degrees(const float position_radians) {
+double radians_to_degrees(const double position_radians) {
 	return position_radians * 57.2958; // 180 / 1*pi [deg/rad]
 }
  
-uint16_t angle_to_pulse(const float angle, const uint8_t servo) {
+uint16_t angle_to_pulse(const double angle, const uint8_t servo) {
 	return round(slope[servo] * angle + intersection[servo]);
 }
  
-bool linreg(uint8_t n, const float x[], const float y[], float* a, float* b) {
-	float sumx = 0.0;                      /* sum of x     */
-	float sumx2 = 0.0;                     /* sum of x**2  */
-	float sumxy = 0.0;                     /* sum of x * y */
-	float sumy = 0.0;                      /* sum of y     */
-	float sumy2 = 0.0;                     /* sum of y**2  */
+bool linreg(uint8_t n, const double x[], const double y[], double* a, double* b) {
+	double sumx = 0.0;                      /* sum of x     */
+	double sumx2 = 0.0;                     /* sum of x**2  */
+	double sumxy = 0.0;                     /* sum of x * y */
+	double sumy = 0.0;                      /* sum of y     */
+	double sumy2 = 0.0;                     /* sum of y**2  */
  
     for (size_t i = 0; i < n; i++){
         sumx  += x[i];
@@ -78,7 +78,7 @@ bool linreg(uint8_t n, const float x[], const float y[], float* a, float* b) {
         sumy2 += pow((y[i]), 2);
     }
  
-    float denom = (n * sumx2 - pow((sumx), 2));
+    double denom = (n * sumx2 - pow((sumx), 2));
     if (denom == 0) {
         // singular matrix. can't solve the problem.
         *a = 0;
