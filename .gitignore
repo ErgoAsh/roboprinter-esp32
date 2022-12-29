@@ -3,5 +3,6 @@ esp_idf_components/
 managed_components/
 components/micro_ros_espidf_component/
 
+sdkconfig.old
 .project
-.sdkconfig.old
+.cache/

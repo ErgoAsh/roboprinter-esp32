@@ -13,7 +13,7 @@
 #include "driver/mcpwm.h"
 #include "driver/timer.h"
 #include "driver/uart.h"
- 
+
 #include "servo_control.h"
 #include "uart_control.h"
  
@@ -24,6 +24,10 @@ static const uint32_t PIN_SERVO_2 = GPIO_NUM_32;
 static const uint32_t PIN_SERVO_3 = GPIO_NUM_33;
  
 const char* TAG = "RP";
+
+// Explicit function declaration via prototypes
+void servo_control_init();
+void uart_init();
  
 void init_status_diode(void) {
 	gpio_reset_pin(PIN_BLINK);
